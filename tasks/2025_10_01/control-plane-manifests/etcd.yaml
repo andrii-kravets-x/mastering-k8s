@@ -13,57 +13,44 @@ spec:
   containers:
   - command:
     - etcd
-    - --advertise-client-urls=https://10.0.10.2:2379
-    - --cert-file=/etc/kubernetes/pki/etcd/server.crt
-    - --client-cert-auth=true
+    - --advertise-client-urls=http://10.0.10.2:2379
+    - --listen-client-urls=http://0.0.0.0:2379
     - --data-dir=/var/lib/etcd
-    - --experimental-initial-corrupt-check=true
-    - --experimental-watch-progress-notify-interval=5s
-    - --initial-advertise-peer-urls=https://10.0.10.2:2380
-    - --initial-cluster=codespaces-3e7062=https://10.0.10.2:2380
-    - --key-file=/etc/kubernetes/pki/etcd/server.key
-    - --listen-client-urls=https://127.0.0.1:2379,https://10.0.10.2:2379
-    - --listen-metrics-urls=http://127.0.0.1:2381
-    - --listen-peer-urls=https://10.0.10.2:2380
-    - --name=codespaces-3e7062
-    - --peer-cert-file=/etc/kubernetes/pki/etcd/peer.crt
-    - --peer-client-cert-auth=true
-    - --peer-key-file=/etc/kubernetes/pki/etcd/peer.key
-    - --peer-trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt
-    - --snapshot-count=10000
-    - --trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt
+    - --listen-peer-urls=http://10.0.10.2:2380
+    - --initial-cluster=default=http://10.0.10.2:2380
+    - --initial-advertise-peer-urls=http://10.0.10.2:2380
+    - --initial-cluster-state=new
+    - --initial-cluster-token=test-token
     image: registry.k8s.io/etcd:3.5.12-0
     imagePullPolicy: IfNotPresent
-    livenessProbe:
-      failureThreshold: 8
-      httpGet:
-        host: 127.0.0.1
-        path: /health?exclude=NOSPACE&serializable=true
-        port: 2381
-        scheme: HTTP
-      initialDelaySeconds: 10
-      periodSeconds: 10
-      timeoutSeconds: 15
+    # livenessProbe:
+    #   failureThreshold: 8
+    #   httpGet:
+    #     host: 127.0.0.1
+    #     path: /health?exclude=NOSPACE&serializable=true
+    #     port: 2381
+    #     scheme: HTTP
+    #   initialDelaySeconds: 10
+    #   periodSeconds: 10
+    #   timeoutSeconds: 15
     name: etcd
     resources:
       requests:
         cpu: 100m
         memory: 100Mi
-    startupProbe:
-      failureThreshold: 24
-      httpGet:
-        host: 127.0.0.1
-        path: /health?serializable=false
-        port: 2381
-        scheme: HTTP
-      initialDelaySeconds: 10
-      periodSeconds: 10
-      timeoutSeconds: 15
+    # startupProbe:
+    #   failureThreshold: 24
+    #   httpGet:
+    #     host: 127.0.0.1
+    #     path: /health?serializable=false
+    #     port: 2381
+    #     scheme: HTTP
+    #   initialDelaySeconds: 10
+    #   periodSeconds: 10
+    #   timeoutSeconds: 15
     volumeMounts:
     - mountPath: /var/lib/etcd
       name: etcd-data
-    - mountPath: /etc/kubernetes/pki/etcd
-      name: etcd-certs
   hostNetwork: true
   priority: 2000001000
   priorityClassName: system-node-critical
@@ -71,10 +58,6 @@ spec:
     seccompProfile:
       type: RuntimeDefault
   volumes:
-  - hostPath:
-      path: /etc/kubernetes/pki/etcd
-      type: DirectoryOrCreate
-    name: etcd-certs
   - hostPath:
       path: /var/lib/etcd
       type: DirectoryOrCreate
