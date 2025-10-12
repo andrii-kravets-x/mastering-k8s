@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: debug
+spec:
+  hostPID: true  # Moved here: Shares host PID namespace
+  containers:
+  - name: debug
+    # image: verizondigital/kubectl-flame:v0.2.4-perf  # Use a recent Ubuntu for better package support
+    image: ubuntu:25.04  # Use a recent Ubuntu for better package support
+    # command: ["bash"]  # Keep pod alive for debugging
+    command: ["sleep", "3600"]  # Keep pod alive for debugging
+    securityContext:
+      privileged: true  # Allows perf to attach to host processes
+  # nodeName: codespaces-3e7062  # Replace with your node name
+  restartPolicy: Never
+  tolerations:  # Allow scheduling on control plane (tainted) nodes
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
