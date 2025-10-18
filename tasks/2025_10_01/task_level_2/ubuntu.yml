@@ -1,18 +1,16 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: debug
+  name: ubuntu
 spec:
-  hostPID: true  # Moved here: Shares host PID namespace
+  hostPID: true
   containers:
-  - name: debug
-    # image: verizondigital/kubectl-flame:v0.2.4-perf  # Use a recent Ubuntu for better package support
-    image: ubuntu:25.04  # Use a recent Ubuntu for better package support
-    # command: ["bash"]  # Keep pod alive for debugging
+  - name: ubuntu
+    image: ubuntu:25.04
     command: ["sleep", "3600"]  # Keep pod alive for debugging
     securityContext:
       privileged: true  # Allows perf to attach to host processes
-  # nodeName: codespaces-3e7062  # Replace with your node name
+  # nodeName: kubeadm-01  # Replace with your node name, leave uncommented if you have 1 node
   restartPolicy: Never
   tolerations:  # Allow scheduling on control plane (tainted) nodes
   - key: node-role.kubernetes.io/control-plane

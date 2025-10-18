@@ -1,0 +1,850 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1800" height="966" onload="init(evt)" viewBox="0 0 1800 966" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eef2ee" offset="5%" />
+		<stop stop-color="#e0ffe0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+		if (currentSearchTerm === null) return;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1800.0" height="966.0" fill="url(#background)"  />
+<text id="title" x="900.00" y="24" >CLANG - CPU Flamegraph</text>
+<text id="details" x="10.00" y="949" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1690.00" y="24" >Search</text>
+<text id="ignorecase" x="1774.00" y="24" >ic</text>
+<text id="matched" x="1690.00" y="949" > </text>
+<g id="frames">
+<g >
+<title>ip6_input_finish (250,000 samples, 3.70%)</title><rect x="1658.1" y="165" width="66.0" height="15.0" fill="rgb(0,212,93)" rx="2" ry="2" />
+<text  x="1661.15" y="175.5" >ip6_inp..</text>
+</g>
+<g >
+<title>ksys_write (500,000 samples, 7.41%)</title><rect x="1592.2" y="613" width="131.9" height="15.0" fill="rgb(0,190,4)" rx="2" ry="2" />
+<text  x="1595.22" y="623.5" >ksys_write</text>
+</g>
+<g >
+<title>obj_cgroup_charge (250,000 samples, 3.70%)</title><rect x="1394.4" y="453" width="66.0" height="15.0" fill="rgb(0,206,68)" rx="2" ry="2" />
+<text  x="1397.44" y="463.5" >obj_cgr..</text>
+</g>
+<g >
+<title>__tcp_transmit_skb (250,000 samples, 3.70%)</title><rect x="1658.1" y="469" width="66.0" height="15.0" fill="rgb(0,216,111)" rx="2" ry="2" />
+<text  x="1661.15" y="479.5" >__tcp_t..</text>
+</g>
+<g >
+<title>tcp_rcv_established (250,000 samples, 3.70%)</title><rect x="1658.1" y="101" width="66.0" height="15.0" fill="rgb(0,227,155)" rx="2" ry="2" />
+<text  x="1661.15" y="111.5" >tcp_rcv..</text>
+</g>
+<g >
+<title>inet6_sendmsg (250,000 samples, 3.70%)</title><rect x="1658.1" y="565" width="66.0" height="15.0" fill="rgb(0,231,172)" rx="2" ry="2" />
+<text  x="1661.15" y="575.5" >inet6_s..</text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (250,000 samples, 3.70%)</title><rect x="1724.1" y="773" width="65.9" height="15.0" fill="rgb(0,203,58)" rx="2" ry="2" />
+<text  x="1727.07" y="783.5" >entry_S..</text>
+</g>
+<g >
+<title>__do_softirq (250,000 samples, 3.70%)</title><rect x="1658.1" y="309" width="66.0" height="15.0" fill="rgb(0,231,174)" rx="2" ry="2" />
+<text  x="1661.15" y="319.5" >__do_so..</text>
+</g>
+<g >
+<title>sock_alloc_file (250,000 samples, 3.70%)</title><rect x="1460.4" y="549" width="65.9" height="15.0" fill="rgb(0,214,103)" rx="2" ry="2" />
+<text  x="1463.37" y="559.5" >sock_al..</text>
+</g>
+<g >
+<title>[podinfo] (2,250,000 samples, 33.33%)</title><rect x="1130.7" y="725" width="593.4" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="1133.74" y="735.5" >[podinfo]</text>
+</g>
+<g >
+<title>new_inode_pseudo (250,000 samples, 3.70%)</title><rect x="1394.4" y="533" width="66.0" height="15.0" fill="rgb(0,197,30)" rx="2" ry="2" />
+<text  x="1397.44" y="543.5" >new_ino..</text>
+</g>
+<g >
+<title>__dev_queue_xmit (250,000 samples, 3.70%)</title><rect x="1658.1" y="357" width="66.0" height="15.0" fill="rgb(0,229,166)" rx="2" ry="2" />
+<text  x="1661.15" y="367.5" >__dev_q..</text>
+</g>
+<g >
+<title>[podinfo] (5,750,000 samples, 85.19%)</title><rect x="273.7" y="805" width="1516.3" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="276.70" y="815.5" >[podinfo]</text>
+</g>
+<g >
+<title>futex_wake (250,000 samples, 3.70%)</title><rect x="1526.3" y="581" width="65.9" height="15.0" fill="rgb(0,204,59)" rx="2" ry="2" />
+<text  x="1529.30" y="591.5" >futex_w..</text>
+</g>
+<g >
+<title>rw_verify_area (250,000 samples, 3.70%)</title><rect x="1592.2" y="581" width="65.9" height="15.0" fill="rgb(0,203,58)" rx="2" ry="2" />
+<text  x="1595.22" y="591.5" >rw_veri..</text>
+</g>
+<g >
+<title>x64_sys_call (500,000 samples, 7.41%)</title><rect x="1592.2" y="645" width="131.9" height="15.0" fill="rgb(0,232,177)" rx="2" ry="2" />
+<text  x="1595.22" y="655.5" >x64_sys_call</text>
+</g>
+<g >
+<title>[podinfo] (4,000,000 samples, 59.26%)</title><rect x="735.2" y="789" width="1054.8" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="738.19" y="799.5" >[podinfo]</text>
+</g>
+<g >
+<title>do_syscall_64 (250,000 samples, 3.70%)</title><rect x="1724.1" y="757" width="65.9" height="15.0" fill="rgb(0,194,18)" rx="2" ry="2" />
+<text  x="1727.07" y="767.5" >do_sysc..</text>
+</g>
+<g >
+<title>init_file (250,000 samples, 3.70%)</title><rect x="1460.4" y="501" width="65.9" height="15.0" fill="rgb(0,231,172)" rx="2" ry="2" />
+<text  x="1463.37" y="511.5" >init_file</text>
+</g>
+<g >
+<title>schedule_hrtimeout_range (250,000 samples, 3.70%)</title><rect x="1724.1" y="661" width="65.9" height="15.0" fill="rgb(0,206,69)" rx="2" ry="2" />
+<text  x="1727.07" y="671.5" >schedul..</text>
+</g>
+<g >
+<title>kmem_cache_alloc_node_noprof (250,000 samples, 3.70%)</title><rect x="1658.1" y="37" width="66.0" height="15.0" fill="rgb(0,193,16)" rx="2" ry="2" />
+<text  x="1661.15" y="47.5" >kmem_ca..</text>
+</g>
+<g >
+<title>[podinfo] (6,250,000 samples, 92.59%)</title><rect x="141.9" y="821" width="1648.1" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="144.85" y="831.5" >[podinfo]</text>
+</g>
+<g >
+<title>[podinfo] (250,000 samples, 3.70%)</title><rect x="1328.5" y="645" width="65.9" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="1331.52" y="655.5" >[podinfo]</text>
+</g>
+<g >
+<title>alloc_inode (250,000 samples, 3.70%)</title><rect x="1394.4" y="517" width="66.0" height="15.0" fill="rgb(0,201,50)" rx="2" ry="2" />
+<text  x="1397.44" y="527.5" >alloc_i..</text>
+</g>
+<g >
+<title>x64_sys_call (250,000 samples, 3.70%)</title><rect x="1526.3" y="629" width="65.9" height="15.0" fill="rgb(0,232,177)" rx="2" ry="2" />
+<text  x="1529.30" y="639.5" >x64_sys..</text>
+</g>
+<g >
+<title>do_syscall_64 (250,000 samples, 3.70%)</title><rect x="1526.3" y="645" width="65.9" height="15.0" fill="rgb(0,194,18)" rx="2" ry="2" />
+<text  x="1529.30" y="655.5" >do_sysc..</text>
+</g>
+<g >
+<title>inet6_csk_xmit (250,000 samples, 3.70%)</title><rect x="1658.1" y="453" width="66.0" height="15.0" fill="rgb(0,201,46)" rx="2" ry="2" />
+<text  x="1661.15" y="463.5" >inet6_c..</text>
+</g>
+<g >
+<title>ip6_xmit (250,000 samples, 3.70%)</title><rect x="1658.1" y="437" width="66.0" height="15.0" fill="rgb(0,227,156)" rx="2" ry="2" />
+<text  x="1661.15" y="447.5" >ip6_xmit</text>
+</g>
+<g >
+<title>do_syscall_64 (500,000 samples, 7.41%)</title><rect x="1394.4" y="629" width="131.9" height="15.0" fill="rgb(0,194,18)" rx="2" ry="2" />
+<text  x="1397.44" y="639.5" >do_syscall_64</text>
+</g>
+<g >
+<title>process_backlog (250,000 samples, 3.70%)</title><rect x="1658.1" y="245" width="66.0" height="15.0" fill="rgb(0,209,82)" rx="2" ry="2" />
+<text  x="1661.15" y="255.5" >process..</text>
+</g>
+<g >
+<title>__tcp_push_pending_frames (250,000 samples, 3.70%)</title><rect x="1658.1" y="501" width="66.0" height="15.0" fill="rgb(0,215,107)" rx="2" ry="2" />
+<text  x="1661.15" y="511.5" >__tcp_p..</text>
+</g>
+<g >
+<title>__netif_receive_skb_one_core (250,000 samples, 3.70%)</title><rect x="1658.1" y="213" width="66.0" height="15.0" fill="rgb(0,200,43)" rx="2" ry="2" />
+<text  x="1661.15" y="223.5" >__netif..</text>
+</g>
+<g >
+<title>__tcp_send_ack.part.0 (250,000 samples, 3.70%)</title><rect x="1658.1" y="53" width="66.0" height="15.0" fill="rgb(0,231,175)" rx="2" ry="2" />
+<text  x="1661.15" y="63.5" >__tcp_s..</text>
+</g>
+<g >
+<title>[podinfo] (6,750,000 samples, 100.00%)</title><rect x="10.0" y="837" width="1780.0" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="13.00" y="847.5" >[podinfo]</text>
+</g>
+<g >
+<title>kmem_cache_alloc_noprof (250,000 samples, 3.70%)</title><rect x="1460.4" y="469" width="65.9" height="15.0" fill="rgb(0,233,183)" rx="2" ry="2" />
+<text  x="1463.37" y="479.5" >kmem_ca..</text>
+</g>
+<g >
+<title>ip6_protocol_deliver_rcu (250,000 samples, 3.70%)</title><rect x="1658.1" y="149" width="66.0" height="15.0" fill="rgb(0,201,50)" rx="2" ry="2" />
+<text  x="1661.15" y="159.5" >ip6_pro..</text>
+</g>
+<g >
+<title>ep_poll (250,000 samples, 3.70%)</title><rect x="1724.1" y="677" width="65.9" height="15.0" fill="rgb(0,223,138)" rx="2" ry="2" />
+<text  x="1727.07" y="687.5" >ep_poll</text>
+</g>
+<g >
+<title>tcp_v6_rcv (250,000 samples, 3.70%)</title><rect x="1658.1" y="133" width="66.0" height="15.0" fill="rgb(0,209,81)" rx="2" ry="2" />
+<text  x="1661.15" y="143.5" >tcp_v6_..</text>
+</g>
+<g >
+<title>sock_alloc (250,000 samples, 3.70%)</title><rect x="1394.4" y="549" width="66.0" height="15.0" fill="rgb(0,215,107)" rx="2" ry="2" />
+<text  x="1397.44" y="559.5" >sock_al..</text>
+</g>
+<g >
+<title>tcp_send_ack (250,000 samples, 3.70%)</title><rect x="1658.1" y="69" width="66.0" height="15.0" fill="rgb(0,199,40)" rx="2" ry="2" />
+<text  x="1661.15" y="79.5" >tcp_sen..</text>
+</g>
+<g >
+<title>security_file_alloc (250,000 samples, 3.70%)</title><rect x="1460.4" y="485" width="65.9" height="15.0" fill="rgb(0,218,121)" rx="2" ry="2" />
+<text  x="1463.37" y="495.5" >securit..</text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (250,000 samples, 3.70%)</title><rect x="1526.3" y="661" width="65.9" height="15.0" fill="rgb(0,203,58)" rx="2" ry="2" />
+<text  x="1529.30" y="671.5" >entry_S..</text>
+</g>
+<g >
+<title>__x64_sys_futex (250,000 samples, 3.70%)</title><rect x="1526.3" y="613" width="65.9" height="15.0" fill="rgb(0,224,145)" rx="2" ry="2" />
+<text  x="1529.30" y="623.5" >__x64_s..</text>
+</g>
+<g >
+<title>__x64_sys_accept4 (500,000 samples, 7.41%)</title><rect x="1394.4" y="597" width="131.9" height="15.0" fill="rgb(0,199,40)" rx="2" ry="2" />
+<text  x="1397.44" y="607.5" >__x64_sys_accept4</text>
+</g>
+<g >
+<title>kmem_cache_alloc_lru_noprof (250,000 samples, 3.70%)</title><rect x="1394.4" y="485" width="66.0" height="15.0" fill="rgb(0,229,167)" rx="2" ry="2" />
+<text  x="1397.44" y="495.5" >kmem_ca..</text>
+</g>
+<g >
+<title>__local_bh_enable_ip (250,000 samples, 3.70%)</title><rect x="1658.1" y="341" width="66.0" height="15.0" fill="rgb(0,222,134)" rx="2" ry="2" />
+<text  x="1661.15" y="351.5" >__local..</text>
+</g>
+<g >
+<title>net_rx_action (250,000 samples, 3.70%)</title><rect x="1658.1" y="277" width="66.0" height="15.0" fill="rgb(0,225,150)" rx="2" ry="2" />
+<text  x="1661.15" y="287.5" >net_rx_..</text>
+</g>
+<g >
+<title>[podinfo] (1,500,000 samples, 22.22%)</title><rect x="1328.5" y="693" width="395.6" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="1331.52" y="703.5" >[podinfo]</text>
+</g>
+<g >
+<title>[podinfo] (750,000 samples, 11.11%)</title><rect x="1328.5" y="661" width="197.8" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="1331.52" y="671.5" >[podinfo]</text>
+</g>
+<g >
+<title>[podinfo] (2,250,000 samples, 33.33%)</title><rect x="1130.7" y="757" width="593.4" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="1133.74" y="767.5" >[podinfo]</text>
+</g>
+<g >
+<title>sock_write_iter (250,000 samples, 3.70%)</title><rect x="1658.1" y="581" width="66.0" height="15.0" fill="rgb(0,228,162)" rx="2" ry="2" />
+<text  x="1661.15" y="591.5" >sock_wr..</text>
+</g>
+<g >
+<title>x64_sys_call (500,000 samples, 7.41%)</title><rect x="1394.4" y="613" width="131.9" height="15.0" fill="rgb(0,232,177)" rx="2" ry="2" />
+<text  x="1397.44" y="623.5" >x64_sys_call</text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (500,000 samples, 7.41%)</title><rect x="1592.2" y="677" width="131.9" height="15.0" fill="rgb(0,203,58)" rx="2" ry="2" />
+<text  x="1595.22" y="687.5" >entry_SYSCALL_64..</text>
+</g>
+<g >
+<title>tcp_sendmsg_locked (250,000 samples, 3.70%)</title><rect x="1658.1" y="533" width="66.0" height="15.0" fill="rgb(0,200,44)" rx="2" ry="2" />
+<text  x="1661.15" y="543.5" >tcp_sen..</text>
+</g>
+<g >
+<title>do_syscall_64 (500,000 samples, 7.41%)</title><rect x="1592.2" y="661" width="131.9" height="15.0" fill="rgb(0,194,18)" rx="2" ry="2" />
+<text  x="1595.22" y="671.5" >do_syscall_64</text>
+</g>
+<g >
+<title>__x64_sys_epoll_pwait (250,000 samples, 3.70%)</title><rect x="1724.1" y="725" width="65.9" height="15.0" fill="rgb(0,217,117)" rx="2" ry="2" />
+<text  x="1727.07" y="735.5" >__x64_s..</text>
+</g>
+<g >
+<title>[podinfo] (1,000,000 samples, 14.81%)</title><rect x="1328.5" y="677" width="263.7" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="1331.52" y="687.5" >[podinfo]</text>
+</g>
+<g >
+<title>ipv6_rcv (250,000 samples, 3.70%)</title><rect x="1658.1" y="197" width="66.0" height="15.0" fill="rgb(0,233,183)" rx="2" ry="2" />
+<text  x="1661.15" y="207.5" >ipv6_rcv</text>
+</g>
+<g >
+<title>_raw_spin_unlock_irqrestore (250,000 samples, 3.70%)</title><rect x="1526.3" y="533" width="65.9" height="15.0" fill="rgb(0,213,97)" rx="2" ry="2" />
+<text  x="1529.30" y="543.5" >_raw_sp..</text>
+</g>
+<g >
+<title>do_futex (250,000 samples, 3.70%)</title><rect x="1526.3" y="597" width="65.9" height="15.0" fill="rgb(0,230,168)" rx="2" ry="2" />
+<text  x="1529.30" y="607.5" >do_futex</text>
+</g>
+<g >
+<title>all (6,750,000 samples, 100%)</title><rect x="10.0" y="917" width="1780.0" height="15.0" fill="rgb(0,198,35)" rx="2" ry="2" />
+<text  x="13.00" y="927.5" ></text>
+</g>
+<g >
+<title>tcp_sendmsg (250,000 samples, 3.70%)</title><rect x="1658.1" y="549" width="66.0" height="15.0" fill="rgb(0,208,76)" rx="2" ry="2" />
+<text  x="1661.15" y="559.5" >tcp_sen..</text>
+</g>
+<g >
+<title>process: 2598 (6,750,000 samples, 100.00%)</title><rect x="10.0" y="901" width="1780.0" height="15.0" fill="rgb(0,217,113)" rx="2" ry="2" />
+<text  x="13.00" y="911.5" >process: 2598</text>
+</g>
+<g >
+<title>neigh_hh_output (250,000 samples, 3.70%)</title><rect x="1658.1" y="373" width="66.0" height="15.0" fill="rgb(0,198,34)" rx="2" ry="2" />
+<text  x="1661.15" y="383.5" >neigh_h..</text>
+</g>
+<g >
+<title>__sys_accept4 (500,000 samples, 7.41%)</title><rect x="1394.4" y="581" width="131.9" height="15.0" fill="rgb(0,223,139)" rx="2" ry="2" />
+<text  x="1397.44" y="591.5" >__sys_accept4</text>
+</g>
+<g >
+<title>finish_task_switch.isra.0 (250,000 samples, 3.70%)</title><rect x="1724.1" y="613" width="65.9" height="15.0" fill="rgb(0,231,172)" rx="2" ry="2" />
+<text  x="1727.07" y="623.5" >finish_..</text>
+</g>
+<g >
+<title>__netif_receive_skb (250,000 samples, 3.70%)</title><rect x="1658.1" y="229" width="66.0" height="15.0" fill="rgb(0,203,55)" rx="2" ry="2" />
+<text  x="1661.15" y="239.5" >__netif..</text>
+</g>
+<g >
+<title>tcp_push (250,000 samples, 3.70%)</title><rect x="1658.1" y="517" width="66.0" height="15.0" fill="rgb(0,228,161)" rx="2" ry="2" />
+<text  x="1661.15" y="527.5" >tcp_push</text>
+</g>
+<g >
+<title>schedule (250,000 samples, 3.70%)</title><rect x="1724.1" y="645" width="65.9" height="15.0" fill="rgb(0,239,209)" rx="2" ry="2" />
+<text  x="1727.07" y="655.5" >schedule</text>
+</g>
+<g >
+<title>mod_memcg_state (250,000 samples, 3.70%)</title><rect x="1394.4" y="437" width="66.0" height="15.0" fill="rgb(0,217,116)" rx="2" ry="2" />
+<text  x="1397.44" y="447.5" >mod_mem..</text>
+</g>
+<g >
+<title>do_softirq.part.0 (250,000 samples, 3.70%)</title><rect x="1658.1" y="325" width="66.0" height="15.0" fill="rgb(0,218,120)" rx="2" ry="2" />
+<text  x="1661.15" y="335.5" >do_soft..</text>
+</g>
+<g >
+<title>alloc_file_pseudo (250,000 samples, 3.70%)</title><rect x="1460.4" y="533" width="65.9" height="15.0" fill="rgb(0,217,116)" rx="2" ry="2" />
+<text  x="1463.37" y="543.5" >alloc_f..</text>
+</g>
+<g >
+<title>do_epoll_wait (250,000 samples, 3.70%)</title><rect x="1724.1" y="693" width="65.9" height="15.0" fill="rgb(0,196,28)" rx="2" ry="2" />
+<text  x="1727.07" y="703.5" >do_epol..</text>
+</g>
+<g >
+<title>podinfo (6,750,000 samples, 100.00%)</title><rect x="10.0" y="885" width="1780.0" height="15.0" fill="rgb(0,197,30)" rx="2" ry="2" />
+<text  x="13.00" y="895.5" >podinfo</text>
+</g>
+<g >
+<title>try_to_wake_up (250,000 samples, 3.70%)</title><rect x="1526.3" y="549" width="65.9" height="15.0" fill="rgb(0,205,64)" rx="2" ry="2" />
+<text  x="1529.30" y="559.5" >try_to_..</text>
+</g>
+<g >
+<title>[podinfo] (3,000,000 samples, 44.44%)</title><rect x="933.0" y="773" width="791.1" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="935.96" y="783.5" >[podinfo]</text>
+</g>
+<g >
+<title>tcp_write_xmit (250,000 samples, 3.70%)</title><rect x="1658.1" y="485" width="66.0" height="15.0" fill="rgb(0,216,111)" rx="2" ry="2" />
+<text  x="1661.15" y="495.5" >tcp_wri..</text>
+</g>
+<g >
+<title>do_epoll_pwait.part.0 (250,000 samples, 3.70%)</title><rect x="1724.1" y="709" width="65.9" height="15.0" fill="rgb(0,233,180)" rx="2" ry="2" />
+<text  x="1727.07" y="719.5" >do_epol..</text>
+</g>
+<g >
+<title>__napi_poll (250,000 samples, 3.70%)</title><rect x="1658.1" y="261" width="66.0" height="15.0" fill="rgb(0,232,178)" rx="2" ry="2" />
+<text  x="1661.15" y="271.5" >__napi_..</text>
+</g>
+<g >
+<title>ip6_finish_output (250,000 samples, 3.70%)</title><rect x="1658.1" y="405" width="66.0" height="15.0" fill="rgb(0,228,163)" rx="2" ry="2" />
+<text  x="1661.15" y="415.5" >ip6_fin..</text>
+</g>
+<g >
+<title>do_accept (500,000 samples, 7.41%)</title><rect x="1394.4" y="565" width="131.9" height="15.0" fill="rgb(0,190,3)" rx="2" ry="2" />
+<text  x="1397.44" y="575.5" >do_accept</text>
+</g>
+<g >
+<title>__tcp_ack_snd_check (250,000 samples, 3.70%)</title><rect x="1658.1" y="85" width="66.0" height="15.0" fill="rgb(0,216,110)" rx="2" ry="2" />
+<text  x="1661.15" y="95.5" >__tcp_a..</text>
+</g>
+<g >
+<title>ip6_output (250,000 samples, 3.70%)</title><rect x="1658.1" y="421" width="66.0" height="15.0" fill="rgb(0,233,182)" rx="2" ry="2" />
+<text  x="1661.15" y="431.5" >ip6_out..</text>
+</g>
+<g >
+<title>alloc_empty_file (250,000 samples, 3.70%)</title><rect x="1460.4" y="517" width="65.9" height="15.0" fill="rgb(0,194,17)" rx="2" ry="2" />
+<text  x="1463.37" y="527.5" >alloc_e..</text>
+</g>
+<g >
+<title>[podinfo] (1,500,000 samples, 22.22%)</title><rect x="1328.5" y="709" width="395.6" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="1331.52" y="719.5" >[podinfo]</text>
+</g>
+<g >
+<title>ip6_finish_output2 (250,000 samples, 3.70%)</title><rect x="1658.1" y="389" width="66.0" height="15.0" fill="rgb(0,205,66)" rx="2" ry="2" />
+<text  x="1661.15" y="399.5" >ip6_fin..</text>
+</g>
+<g >
+<title>__memcg_slab_post_alloc_hook (250,000 samples, 3.70%)</title><rect x="1394.4" y="469" width="66.0" height="15.0" fill="rgb(0,192,8)" rx="2" ry="2" />
+<text  x="1397.44" y="479.5" >__memcg..</text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (500,000 samples, 7.41%)</title><rect x="1394.4" y="645" width="131.9" height="15.0" fill="rgb(0,203,58)" rx="2" ry="2" />
+<text  x="1397.44" y="655.5" >entry_SYSCALL_64..</text>
+</g>
+<g >
+<title>[podinfo] (6,750,000 samples, 100.00%)</title><rect x="10.0" y="869" width="1780.0" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="13.00" y="879.5" >[podinfo]</text>
+</g>
+<g >
+<title>wake_up_q (250,000 samples, 3.70%)</title><rect x="1526.3" y="565" width="65.9" height="15.0" fill="rgb(0,222,138)" rx="2" ry="2" />
+<text  x="1529.30" y="575.5" >wake_up_q</text>
+</g>
+<g >
+<title>__x64_sys_write (500,000 samples, 7.41%)</title><rect x="1592.2" y="629" width="131.9" height="15.0" fill="rgb(0,231,173)" rx="2" ry="2" />
+<text  x="1595.22" y="639.5" >__x64_sys_write</text>
+</g>
+<g >
+<title>sock_alloc_inode (250,000 samples, 3.70%)</title><rect x="1394.4" y="501" width="66.0" height="15.0" fill="rgb(0,197,31)" rx="2" ry="2" />
+<text  x="1397.44" y="511.5" >sock_al..</text>
+</g>
+<g >
+<title>security_file_permission (250,000 samples, 3.70%)</title><rect x="1592.2" y="565" width="65.9" height="15.0" fill="rgb(0,210,88)" rx="2" ry="2" />
+<text  x="1595.22" y="575.5" >securit..</text>
+</g>
+<g >
+<title>ip6_input (250,000 samples, 3.70%)</title><rect x="1658.1" y="181" width="66.0" height="15.0" fill="rgb(0,216,112)" rx="2" ry="2" />
+<text  x="1661.15" y="191.5" >ip6_input</text>
+</g>
+<g >
+<title>aa_sock_file_perm (250,000 samples, 3.70%)</title><rect x="1592.2" y="517" width="65.9" height="15.0" fill="rgb(0,209,83)" rx="2" ry="2" />
+<text  x="1595.22" y="527.5" >aa_sock..</text>
+</g>
+<g >
+<title>aa_file_perm (250,000 samples, 3.70%)</title><rect x="1592.2" y="533" width="65.9" height="15.0" fill="rgb(0,214,101)" rx="2" ry="2" />
+<text  x="1595.22" y="543.5" >aa_file..</text>
+</g>
+<g >
+<title>x64_sys_call (250,000 samples, 3.70%)</title><rect x="1724.1" y="741" width="65.9" height="15.0" fill="rgb(0,232,177)" rx="2" ry="2" />
+<text  x="1727.07" y="751.5" >x64_sys..</text>
+</g>
+<g >
+<title>handle_softirqs (250,000 samples, 3.70%)</title><rect x="1658.1" y="293" width="66.0" height="15.0" fill="rgb(0,223,142)" rx="2" ry="2" />
+<text  x="1661.15" y="303.5" >handle_..</text>
+</g>
+<g >
+<title>[podinfo] (2,250,000 samples, 33.33%)</title><rect x="1130.7" y="741" width="593.4" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="1133.74" y="751.5" >[podinfo]</text>
+</g>
+<g >
+<title>__schedule (250,000 samples, 3.70%)</title><rect x="1724.1" y="629" width="65.9" height="15.0" fill="rgb(0,212,94)" rx="2" ry="2" />
+<text  x="1727.07" y="639.5" >__sched..</text>
+</g>
+<g >
+<title>tcp_v6_do_rcv (250,000 samples, 3.70%)</title><rect x="1658.1" y="117" width="66.0" height="15.0" fill="rgb(0,232,179)" rx="2" ry="2" />
+<text  x="1661.15" y="127.5" >tcp_v6_..</text>
+</g>
+<g >
+<title>[podinfo] (6,750,000 samples, 100.00%)</title><rect x="10.0" y="853" width="1780.0" height="15.0" fill="rgb(0,208,77)" rx="2" ry="2" />
+<text  x="13.00" y="863.5" >[podinfo]</text>
+</g>
+<g >
+<title>vfs_write (500,000 samples, 7.41%)</title><rect x="1592.2" y="597" width="131.9" height="15.0" fill="rgb(0,235,191)" rx="2" ry="2" />
+<text  x="1595.22" y="607.5" >vfs_write</text>
+</g>
+<g >
+<title>apparmor_file_permission (250,000 samples, 3.70%)</title><rect x="1592.2" y="549" width="65.9" height="15.0" fill="rgb(0,203,55)" rx="2" ry="2" />
+<text  x="1595.22" y="559.5" >apparmo..</text>
+</g>
+</g>
+</svg>
