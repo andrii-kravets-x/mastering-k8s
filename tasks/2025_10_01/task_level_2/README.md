@@ -14,9 +14,10 @@ done with kubeadm + flannel on Proxmox, [guide](/tasks/2025_10_01/task_level_2/s
 --- 
 
 ### For kube-apiserver profiling - four options were found:
-1. Use https://github.com/yahoo/kubectl-flame or https://github.com/josepdcs/kubectl-prof - install krew, install prof plugin, see spoiler
+1. Use https://github.com/yahoo/kubectl-flame or https://github.com/josepdcs/kubectl-prof, see spoiler
     <details><summary>kubectl-prof</summary>
 
+    You will require krew plugin manager for kubectl and prof plugin
     ```bash
     ubuntu@kubeadm-01 ~> kubectl prof podinfo-544cf96bd5-66j6c -t 1m --lang clang --tool perf  -o flamegraph --local-path=./
     Verified target pod ... ✔
@@ -27,7 +28,7 @@ done with kubeadm + flannel on Proxmox, [guide](/tasks/2025_10_01/task_level_2/s
     ```
 
 
-    This was needed on VM where kubeadm-01 runs for bpf mode (when --tool flag is not set) to work
+    This was needed on VM where kubeadm-01 runs using bpf (when `--tool` flag is **not** set)
     ```
     # See: https://kernel.ubuntu.com/mainline/
     wget https://kernel.ubuntu.com/mainline/v6.17/amd64/linux-image-unsigned-6.17.0-061700-generic_6.17.0-061700.202509282239_amd64.deb
@@ -53,7 +54,7 @@ done with kubeadm + flannel on Proxmox, [guide](/tasks/2025_10_01/task_level_2/s
     ```
 
 
-    kubectl-prof will run a Job:
+    `kubectl-prof` will run k8s **Job**:
     ```log
     default        0s                   Normal    SuccessfulCreate          Job/kubectl-prof-bpf-3a7549db-df13-40eb-9235-9805a7d7a48b      Created pod: kubectl-prof-bpf-3a7549db-df13-40eb-9235-9805a7d7a48b-8w8l2
     default        0s                   Normal    Pulling                   Pod/kubectl-prof-bpf-3a7549db-df13-40eb-9235-9805a7d7a48b-8w8l2   Pulling image "josepdcs/kubectl-prof:1.6.0-bpf"
@@ -77,8 +78,10 @@ done with kubeadm + flannel on Proxmox, [guide](/tasks/2025_10_01/task_level_2/s
     </details>
 2. Run **debug pod on the node**, /host/perf.data inside container -> /perf.data on VM
     > The container will run in the host namespaces and the host's filesystem will be mounted at /host
-    `kubectl debug node/kubeadm-01 -it --image=verizondigital/kubectl-flame:v0.2.4-perf --profile=general -- /app/perf record -F 99 -g -p 1611 -o /host/perf.data`
-    this will record profiling file in /perf.data on node (VM in this case)
+    ```bash
+    kubectl debug node/kubeadm-01 -it --image=verizondigital/kubectl-flame:v0.2.4-perf --profile=general -- /app/perf record -F 99 -g -p 1611 -o /host/perf.data`
+    ```
+    this will record profiling file in `/perf.data` on node (VM in our case)
 3. Create standalone **ubuntu** privileged pod **on the same node via manifest**, see spoiler
     <details><summary>kubectl-prof</summary>
 
