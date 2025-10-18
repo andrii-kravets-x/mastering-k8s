@@ -107,6 +107,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 Generate deep copy methods and CRDs:
 
 ```bash
+# Initialize Go module
+go mod init github.com/den-vasyliev/mastering-k8s/new-controller
+
+# Build the controller
+go mod tidy
+
 # Generate deep copy methods
 controller-gen object paths="./api/..."
 
@@ -223,11 +229,7 @@ func (r *NewResourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 ### Step 5: Build and Run
 
 ```bash
-# Initialize Go module
-go mod init github.com/den-vasyliev/mastering-k8s/new-controller
-
 # Build the controller
-go mod tidy
 go build -o bin/manager main.go
 
 # Install CRD

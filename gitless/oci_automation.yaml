@@ -1,0 +1,56 @@
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: kbotoci
+  namespace: default
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: "1m"
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/den-vasyliev/kbot-src
+  filter:
+    semver: ">=2.2.x-0"
+    limit: 1
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: kbot
+  namespace: default
+  annotations:
+    fluxcd.controlplane.io/reconcileTimeout: "5m"
+spec:
+  inputStrategy:
+    name: Permute
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: kbotoci
+  resources:
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: kbot
+        namespace: flux-system
+      spec:
+        interval: 1m
+        url: "oci://ghcr.io/den-vasyliev/charts/kbot"
+        ref:
+          semver: ">2.2.0"
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: kbot
+        namespace: flux-system
+      spec:
+        interval: 1m
+        releaseName: demo
+        targetNamespace: default
+        chartRef:
+          kind: OCIRepository
+          name: kbot
+          namespace: flux-system
+        postRenderers:
+          - kustomize:            
+              images:
+                - name: ghcr.io/den-vasyliev/kbot-src
+                  newTag: << inputs.kbotoci.tag | quote >>
