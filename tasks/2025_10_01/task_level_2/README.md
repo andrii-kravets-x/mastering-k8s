@@ -17,7 +17,7 @@ done with kubeadm + flannel on Proxmox, [guide](/tasks/2025_10_01/task_level_2/s
 1. Use https://github.com/yahoo/kubectl-flame or https://github.com/josepdcs/kubectl-prof, see spoiler
     <details><summary>kubectl-prof</summary>
 
-    You will require krew plugin manager for kubectl and prof plugin
+    You will require **krew plugin manager** for kubectl and **prof** plugin
     ```bash
     ubuntu@kubeadm-01 ~> kubectl prof podinfo-544cf96bd5-66j6c -t 1m --lang clang --tool perf  -o flamegraph --local-path=./
     Verified target pod ... ✔
@@ -76,10 +76,10 @@ done with kubeadm + flannel on Proxmox, [guide](/tasks/2025_10_01/task_level_2/s
     ```
 
     </details>
-2. Run **debug pod on the node**, /host/perf.data inside container -> /perf.data on VM
+2. Run **debug pod on the node**
     > The container will run in the host namespaces and the host's filesystem will be mounted at /host
     ```bash
-    kubectl debug node/kubeadm-01 -it --image=verizondigital/kubectl-flame:v0.2.4-perf --profile=general -- /app/perf record -F 99 -g -p 1611 -o /host/perf.data`
+    kubectl debug node/kubeadm-01 -it --image=verizondigital/kubectl-flame:v0.2.4-perf --profile=general -- /app/perf record -F 99 -g -p 1611 -o /host/perf.data
     ```
     this will record profiling file in `/perf.data` on node (VM in our case)
 3. Create standalone **ubuntu** privileged pod **on the same node via manifest**, see spoiler
