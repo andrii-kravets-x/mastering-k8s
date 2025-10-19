@@ -1,0 +1,9 @@
+apiVersion: web.my.domain/v1
+kind: App
+metadata:
+  labels:
+    app.kubernetes.io/name: controller-root-directory
+    app.kubernetes.io/managed-by: kustomize
+  name: app-sample
+spec:
+  foo: "this is string for my first controller"
