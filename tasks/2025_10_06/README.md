@@ -14,7 +14,7 @@ We will use **kubebuilder**
 
 See other options [here](./ways-to-build-controllers.md)
 
-### 1. download kubebuilder and install locally.
+### 1. Download kubebuilder and install locally.
 ```bash
 curl -L -o kubebuilder "https://go.kubebuilder.io/dl/latest/$(go env GOOS)/$(go env GOARCH)"
 chmod +x kubebuilder && sudo mv kubebuilder /usr/local/bin/
@@ -85,7 +85,7 @@ Events:   <none>
 ### 8. Build and launch controller
 ```bash
 go build -o bin/manager cmd/main.go
-`./bin/manager`
+./bin/manager
 ```
 
 See logs and status change on [screenshot](./2025-10-19_23-37.png)
